@@ -183,7 +183,7 @@ struct ClaudeClient {
 
 // MARK: - JSON schema helpers
 
-enum Schema {
+enum JSONSchema {
     static func string(_ description: String? = nil) -> [String: Any] {
         var schema: [String: Any] = ["type": "string"]
         if let description { schema["description"] = description }

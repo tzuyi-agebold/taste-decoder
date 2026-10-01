@@ -52,10 +52,10 @@ enum TagSuggester {
     wording so patterns can emerge across their saves. Give 3–4 feelings, 2–3 references and 4–6 ingredients.
     """
 
-    private static let schema = Schema.object([
-        ("feelings", Schema.array(Schema.string())),
-        ("references", Schema.array(Schema.string())),
-        ("ingredients", Schema.array(Schema.string())),
+    private static let schema = JSONSchema.object([
+        ("feelings", JSONSchema.array(JSONSchema.string())),
+        ("references", JSONSchema.array(JSONSchema.string())),
+        ("ingredients", JSONSchema.array(JSONSchema.string())),
     ])
 
     static func suggest(_ context: SuggestionContext, client: ClaudeClient) async throws -> TagSuggestions {
@@ -103,7 +103,7 @@ enum TasteStatementWriter {
     No hype, no hedging, no quotation marks.
     """
 
-    private static let schema = Schema.object([("statement", Schema.string())])
+    private static let schema = JSONSchema.object([("statement", JSONSchema.string())])
 
     static func write(collectionName: String, domain: String, verb: String, distillation: Distillation,
                       client: ClaudeClient) async throws -> String {
@@ -163,17 +163,17 @@ enum LearnCardGenerator {
     """
 
     private static let schema: [String: Any] = {
-        let kinds = Schema.stringEnum(LearnKind.allCases.map(\.rawValue))
-        return Schema.object([
-            ("title", Schema.string()),
+        let kinds = JSONSchema.stringEnum(LearnKind.allCases.map(\.rawValue))
+        return JSONSchema.object([
+            ("title", JSONSchema.string()),
             ("kind", kinds),
-            ("summary", Schema.string()),
-            ("era", Schema.string()),
-            ("characteristics", Schema.array(Schema.string())),
-            ("examples", Schema.array(Schema.object([("title", Schema.string()), ("detail", Schema.string())]))),
-            ("encounter", Schema.string()),
-            ("why_it_matters", Schema.string()),
-            ("related", Schema.array(Schema.object([("name", Schema.string()), ("kind", kinds)]))),
+            ("summary", JSONSchema.string()),
+            ("era", JSONSchema.string()),
+            ("characteristics", JSONSchema.array(JSONSchema.string())),
+            ("examples", JSONSchema.array(JSONSchema.object([("title", JSONSchema.string()), ("detail", JSONSchema.string())]))),
+            ("encounter", JSONSchema.string()),
+            ("why_it_matters", JSONSchema.string()),
+            ("related", JSONSchema.array(JSONSchema.object([("name", JSONSchema.string()), ("kind", kinds)]))),
         ])
     }()
 
