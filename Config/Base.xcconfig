@@ -1,0 +1,23 @@
+// Taste Decoder — shared build settings.
+//
+// Don't edit this file for personal values. Copy Secrets.example.xcconfig to
+// Secrets.xcconfig (gitignored) and set your team, bundle id prefix and Claude API key there.
+
+// A reverse-DNS prefix unique to you, e.g. com.yourname. Bundle ids and the App Group derive from it.
+TD_BUNDLE_ID_PREFIX = com.example.tastedecoder
+
+// Your Apple Developer Team ID (Xcode ▸ Settings ▸ Accounts). Leave empty to pick it in Xcode.
+TD_DEVELOPMENT_TEAM =
+
+// App Group shared by the app and the Share Extension.
+TD_APP_GROUP_ID = group.$(TD_BUNDLE_ID_PREFIX)
+
+// Entitlements (App Group). Free Apple IDs can't use App Groups: blank both lines in Secrets.xcconfig.
+TD_APP_ENTITLEMENTS = Config/TasteDecoder.entitlements
+TD_SHARE_ENTITLEMENTS = Config/TasteDecoderShare.entitlements
+
+// Claude API. The key can also be pasted in the app (Settings ▸ Claude), which stores it in the Keychain.
+CLAUDE_API_KEY =
+CLAUDE_MODEL = claude-opus-5-5
+
+#include? "Secrets.xcconfig"

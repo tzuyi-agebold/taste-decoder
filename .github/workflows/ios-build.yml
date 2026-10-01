@@ -1,0 +1,57 @@
+name: iOS build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Core logic tests
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        run: swift test
+
+  build:
+    name: Xcode build (simulator, unsigned)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project TasteDecoder.xcodeproj \
+            -scheme TasteDecoder \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            | tee build.log | grep -E "error:|warning: .*(deprecated|unavailable)|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" build.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build.log
+          if-no-files-found: ignore
