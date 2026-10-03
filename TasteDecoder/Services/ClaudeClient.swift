@@ -1,10 +1,29 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Minimal Claude Messages API client over URLSession (there's no official Swift SDK).
 /// Every call uses structured outputs (`output_config.format`) so responses decode straight into Swift types.
 struct ClaudeClient {
-    let apiKey: String
+    /// How requests reach Claude: directly with the user's own key, or through the
+    /// Taste Decoder backend, which holds the key and authenticates the signed-in user.
+    enum Transport {
+        case direct(apiKey: String)
+        case proxy(url: URL, apiKey: String, accessToken: @Sendable () async throws -> String)
+    }
+
+    let transport: Transport
     let model: String
+
+    init(transport: Transport, model: String) {
+        self.transport = transport
+        self.model = model
+    }
+
+    init(apiKey: String, model: String) {
+        self.init(transport: .direct(apiKey: apiKey), model: model)
+    }
 
     static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
     static let apiVersion = "2023-06-01"
@@ -22,6 +41,7 @@ struct ClaudeClient {
 
     enum ClaudeError: LocalizedError {
         case missingKey
+        case signedOut
         case http(status: Int, message: String)
         case refusal
         case truncated
@@ -31,10 +51,12 @@ struct ClaudeClient {
 
         var errorDescription: String? {
             switch self {
-            case .missingKey: "Add your Claude API key in Settings to use AI suggestions."
+            case .missingKey: "Sign in or add your Claude API key in Settings to use AI suggestions."
+            case .signedOut: "Your session has expired. Sign in again in Settings."
             case let .http(status, message):
                 switch status {
                 case 401: "Claude rejected the API key. Check it in Settings."
+                case 402 where !message.isEmpty: message // Backend daily allowance used up.
                 case 429: "Claude is rate-limiting requests. Try again in a moment."
                 case 529, 503: "Claude is overloaded right now. Try again in a moment."
                 default: "Claude returned an error (\(status)): \(message)"
@@ -123,10 +145,24 @@ struct ClaudeClient {
 
     /// Returns the concatenated text blocks of the response (thinking blocks are skipped).
     private func send(_ body: [String: Any], beta: String?, timeout: TimeInterval) async throws -> String {
-        var request = URLRequest(url: Self.endpoint, timeoutInterval: timeout)
+        var request: URLRequest
+        switch transport {
+        case let .direct(apiKey):
+            request = URLRequest(url: Self.endpoint, timeoutInterval: timeout)
+            request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        case let .proxy(url, apiKey, accessToken):
+            request = URLRequest(url: url, timeoutInterval: timeout)
+            let token: String
+            do {
+                token = try await accessToken()
+            } catch {
+                throw ClaudeError.signedOut
+            }
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "authorization")
+            request.setValue(apiKey, forHTTPHeaderField: "apikey")
+        }
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "content-type")
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue(Self.apiVersion, forHTTPHeaderField: "anthropic-version")
         if let beta { request.setValue(beta, forHTTPHeaderField: "anthropic-beta") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

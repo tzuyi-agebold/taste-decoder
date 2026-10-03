@@ -28,6 +28,22 @@ final class TasteCollection {
     /// `Distillation.signature` at the time `statement` was written; a mismatch means it's stale.
     var statementSignature: String?
 
+    // Imported collections (a Pinterest board) carry a summary instead of individual saves.
+    /// `CollectionSource` raw value, or nil for collections made in the app.
+    var sourceRaw: String?
+    /// The board id at the source, used to refresh in place.
+    var sourceID: String?
+    var sourceURL: String?
+    /// Items at the source when imported (pins on the board).
+    var sourceItemCount: Int = 0
+    var importedAt: Date?
+    /// What the source is about, in Claude's words.
+    var summary: String?
+    /// JSON-encoded `ImportedProfile`: tag counts over the analyzed items.
+    var profileData: Data?
+    /// Up to four local image file names standing in for the source, newline-separated.
+    var coverImageNamesRaw: String?
+
     @Relationship(deleteRule: .nullify, inverse: \SaveItem.collection)
     var items: [SaveItem] = []
 
@@ -96,6 +112,22 @@ final class TagEntry {
         self.statusRaw = status.rawValue
         self.sourceRaw = source.rawValue
         self.createdAt = Date()
+    }
+}
+
+/// What was last synced for one row: if the row's current fingerprint differs, it needs uploading;
+/// if the row is gone, its deletion does. Cleared on sign-out.
+@Model
+final class SyncRecord {
+    /// "\(table):\(rowID)", or "image:\(fileName)" for uploaded images.
+    @Attribute(.unique) var recordKey: String = ""
+    var fingerprint: String = ""
+    var syncedAt: Date = Date()
+
+    init(recordKey: String, fingerprint: String) {
+        self.recordKey = recordKey
+        self.fingerprint = fingerprint
+        self.syncedAt = Date()
     }
 }
 
@@ -188,10 +220,73 @@ extension TagEntry {
     }
 }
 
+enum CollectionSource: String {
+    case pinterest
+
+    var label: String {
+        switch self {
+        case .pinterest: "Pinterest"
+        }
+    }
+
+    /// What the source calls its items.
+    func itemNoun(_ count: Int) -> String {
+        switch self {
+        case .pinterest: count == 1 ? "pin" : "pins"
+        }
+    }
+}
+
 extension TasteCollection {
     var sortedItems: [SaveItem] { items.sorted { $0.createdAt > $1.createdAt } }
 
-    var distillation: Distillation { Distiller.distill(items.map(\.snapshot)) }
+    var distillation: Distillation { effectiveDistillation(items: items) }
+
+    var source: CollectionSource? { sourceRaw.flatMap(CollectionSource.init(rawValue:)) }
+    var isImported: Bool { source != nil }
+
+    var importedProfile: ImportedProfile? {
+        get { profileData.flatMap { try? JSONDecoder().decode(ImportedProfile.self, from: $0) } }
+        set { profileData = newValue.flatMap { try? JSONEncoder().encode($0) } }
+    }
+
+    var coverImageNames: [String] {
+        get { (coverImageNamesRaw ?? "").split(separator: "\n").map(String.init) }
+        set { coverImageNamesRaw = newValue.isEmpty ? nil : newValue.joined(separator: "\n") }
+    }
+
+    /// The saves in this collection distilled, plus the imported summary when there is one.
+    /// Pass `items` when the caller already has them filtered (views observe saves via @Query).
+    func effectiveDistillation(items: [SaveItem]) -> Distillation {
+        let fromSaves = Distiller.distill(items.map(\.snapshot))
+        guard let profile = importedProfile else { return fromSaves }
+        return Distillation(profile: profile).merged(with: fromSaves)
+    }
+
+    /// Renames (or merges) an imported tag, as the Pantry does for saves.
+    func renameImportedTag(key: String, level: TagLevel, to newName: String) {
+        guard var profile = importedProfile else { return }
+        let cleaned = TagText.clean(newName)
+        guard !TagText.key(cleaned).isEmpty else { return }
+        profile.update(level) { counts in
+            for index in counts.indices where TagText.key(counts[index].name) == key { counts[index].name = cleaned }
+        }
+        importedProfile = profile
+    }
+
+    func removeImportedTag(key: String, level: TagLevel) {
+        guard var profile = importedProfile else { return }
+        profile.update(level) { counts in counts.removeAll { TagText.key($0.name) == key } }
+        importedProfile = profile
+    }
+
+    /// Imported tags as pantry usages: one "item" per collection, so the Pantry and Learn cards see them.
+    var importedUsages: [TagUsage] {
+        guard let profile = importedProfile else { return [] }
+        return TagLevel.allCases.flatMap { level in
+            profile.counts(for: level).map { TagUsage(name: $0.name, level: level, itemID: id, collectionName: name) }
+        }
+    }
 
     /// The statement to show: the written one while it still matches the collection, else the live template.
     func currentStatement(for distillation: Distillation) -> (text: String?, isWritten: Bool) {

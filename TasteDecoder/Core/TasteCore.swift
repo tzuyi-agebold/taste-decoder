@@ -293,11 +293,12 @@ enum TasteStatement {
     }
 
     /// Headline hook for the distillation reveal: "9 of 10 saves share harsh flash lighting."
-    static func headline(_ distillation: Distillation) -> String? {
+    /// `noun` names the items: saves, or pins for an imported board.
+    static func headline(_ distillation: Distillation, noun: (one: String, many: String) = ("save", "saves")) -> String? {
         guard let top = distillation.signatureIngredients.first else { return nil }
-        if top.total == 1 { return "One save so far — it leads with \(top.name)." }
-        if top.count == top.total { return "All \(top.total) saves share \(top.name)." }
-        return "\(top.count) of \(top.total) saves share \(top.name)."
+        if top.total == 1 { return "One \(noun.one) so far — it leads with \(top.name)." }
+        if top.count == top.total { return "All \(top.total) \(noun.many) share \(top.name)." }
+        return "\(top.count) of \(top.total) \(noun.many) share \(top.name)."
     }
 }
 

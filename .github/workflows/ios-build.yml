@@ -19,6 +19,22 @@ jobs:
       - name: swift test
         run: swift test
 
+  edge-functions:
+    name: Edge Functions (Deno)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: deno check
+        working-directory: supabase/functions
+        run: deno check */index.ts _shared/*.ts
+      - name: deno test
+        working-directory: supabase/functions
+        run: deno test _shared/
+
   build:
     name: Xcode build (simulator, unsigned)
     runs-on: macos-15

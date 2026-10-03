@@ -5,6 +5,8 @@ import SwiftUI
 struct LearnHomeView: View {
     @Environment(LearnLibrary.self) private var library
     @Query(filter: #Predicate<TagEntry> { $0.statusRaw == "confirmed" }) private var confirmedTags: [TagEntry]
+    // Imported boards add their tags to the pantry too.
+    @Query(filter: #Predicate<TasteCollection> { $0.profileData != nil }) private var importedCollections: [TasteCollection]
     @Query(sort: \LearnCardRecord.updatedAt, order: .reverse) private var records: [LearnCardRecord]
 
     @Namespace private var learnNamespace
@@ -15,7 +17,7 @@ struct LearnHomeView: View {
         PantryIndex.build(confirmedTags.compactMap { tag in
             guard let item = tag.item else { return nil }
             return TagUsage(name: tag.name, level: tag.level, itemID: item.id, collectionName: item.collection?.name)
-        })
+        } + importedCollections.flatMap(\.importedUsages))
     }
 
     var body: some View {

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 
@@ -159,6 +160,16 @@ enum SeedData {
         (nil, "The hotel lobby in that Sofia Coppola film — the hush, the jet lag, the neon.", nil),
     ]
 
+    /// Demo rows get the same ids on every device, so syncing two devices merges the demo instead of doubling it.
+    static func seededID(_ name: String) -> UUID {
+        let bytes = Array(SHA256.hash(data: Data("taste-decoder-seed|\(name)".utf8)).prefix(16))
+        var uuid = bytes
+        uuid[6] = (uuid[6] & 0x0F) | 0x50 // version 5-style
+        uuid[8] = (uuid[8] & 0x3F) | 0x80 // RFC 4122 variant
+        return UUID(uuid: (uuid[0], uuid[1], uuid[2], uuid[3], uuid[4], uuid[5], uuid[6], uuid[7],
+                           uuid[8], uuid[9], uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]))
+    }
+
     @MainActor
     static func seedIfNeeded(_ context: ModelContext) {
         let defaults = UserDefaults.standard
@@ -177,6 +188,7 @@ enum SeedData {
         for (collectionIndex, seed) in collections.enumerated() where !existingNames.contains(seed.name) {
             let collection = TasteCollection(name: seed.name, domain: seed.domain, verb: seed.verb,
                                              symbol: seed.symbol, sortIndex: collectionIndex)
+            collection.id = seededID("collection|\(seed.name)")
             collection.createdAt = now.addingTimeInterval(TimeInterval(-86_400 * (30 - collectionIndex)))
             context.insert(collection)
 
@@ -187,6 +199,7 @@ enum SeedData {
                 item.artSeed = collectionIndex * 100 + itemIndex
                 item.why = seedItem.why
                 item.decodedAt = created.addingTimeInterval(600)
+                item.id = seededID("item|\(seed.name)|\(itemIndex)")
                 context.insert(item)
                 item.collection = collection
 
@@ -194,7 +207,9 @@ enum SeedData {
                     (.feeling, seedItem.feelings), (.reference, seedItem.references), (.ingredient, seedItem.ingredients),
                 ]
                 for (level, names) in levels {
-                    for name in names { context.addTag(name, level: level, to: item) }
+                    for name in names {
+                        context.addTag(name, level: level, to: item)?.id = seededID("tag|\(seed.name)|\(itemIndex)|\(level.rawValue)|\(name)")
+                    }
                 }
             }
 
@@ -214,6 +229,7 @@ enum SeedData {
                                     createdAt: now.addingTimeInterval(TimeInterval(-600 * (index + 1))))
                 item.artStyleRaw = seed.art?.rawValue
                 item.artSeed = 900 + index
+                item.id = seededID("inbox|\(index)")
                 context.insert(item)
             }
         }

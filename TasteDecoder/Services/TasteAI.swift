@@ -202,3 +202,125 @@ enum LearnCardGenerator {
         )
     }
 }
+
+// MARK: - Board summaries (imported collections)
+
+/// What Claude makes of a whole Pinterest board: a summary and tag counts over the pins it looked at.
+struct BoardSummary: Sendable {
+    var about: String
+    var domain: String
+    var verb: String
+    var statement: String
+    var symbol: String
+    var profile: ImportedProfile
+}
+
+enum BoardAnalyzer {
+    /// Symbols offered to Claude; the same set the collection editor uses.
+    static let symbols = ["square.stack", "eye", "camera", "paintpalette", "wineglass", "fork.knife", "sofa",
+                          "music.note", "film", "book", "tshirt", "leaf", "building.2", "sparkles"]
+    static let verbs = ["feel", "look", "sound", "taste", "read"]
+
+    private struct Output: Decodable {
+        struct Count: Decodable { let name: String; let count: Int }
+        let about: String
+        let domain: String
+        let verb: String
+        let symbol: String
+        let feelings: [Count]
+        let references: [Count]
+        let ingredients: [Count]
+        let statement: String
+    }
+
+    private static let system = """
+    You help people articulate their taste in an app called Taste Decoder. Someone imported one of their Pinterest \
+    boards. You see a sample of its pins as numbered images, plus the titles and descriptions of every pin. \
+    Work out what the board is about and what keeps showing up, on three levels of an articulation ladder:
+    - feelings: plain emotional words anyone can use ("uncomfortable", "cozy", "electric", "melancholy").
+    - references: similes, metaphors or cultural references that capture it ("a Wes Anderson set", "90s skate zine"). \
+    Name real people, works, eras or scenes only when you're confident they fit.
+    - ingredients: the specific techniques, elements, materials, colors, shapes or textures a practitioner would name \
+    ("harsh flash lighting", "terracotta tile", "oversized tailoring"). This is the most important level: concrete \
+    and observable, never evaluative ("beautiful" is not an ingredient).
+    For every tag, count = how many of the numbered images clearly show it (at least 1, at most the number of images). \
+    Be honest: a tag in most images is the board's signature; don't inflate counts. Give 3–6 feelings, 2–4 references \
+    and 6–10 ingredients, strongest first. Tags are 1–4 words, lowercase unless a proper noun, no duplicates across levels. \
+    When one of the person's existing words genuinely fits, reuse its exact wording so their collections can be compared.
+    about: 2–3 plain sentences on what the board is about and what ties it together, addressed to the person ("Your board…").
+    domain: one plural noun for what the board holds (visuals, rooms, outfits, reds, songs, recipes, things).
+    verb: the sense that fits the domain. symbol: the icon that fits best.
+    statement: one sentence they could say out loud, shaped "I like [domain] that [verb] [feeling or vivid metaphor] — \
+    [3–5 signature ingredients]." Under 28 words, no quotation marks.
+    """
+
+    private static let schema: [String: Any] = {
+        let count = JSONSchema.object([("name", JSONSchema.string()), ("count", ["type": "integer"])])
+        return JSONSchema.object([
+            ("about", JSONSchema.string()),
+            ("domain", JSONSchema.string()),
+            ("verb", JSONSchema.stringEnum(verbs)),
+            ("symbol", JSONSchema.stringEnum(symbols)),
+            ("feelings", JSONSchema.array(count)),
+            ("references", JSONSchema.array(count)),
+            ("ingredients", JSONSchema.array(count)),
+            ("statement", JSONSchema.string()),
+        ])
+    }()
+
+    /// - Parameters:
+    ///   - pinTexts: titles/descriptions of every pin read from the board.
+    ///   - images: the sampled pin images (JPEG, already downscaled), in order.
+    ///   - totalPins: pins on the board, for context.
+    ///   - vocabulary: the person's most-used tags per level, so wording lines up across collections.
+    static func analyze(boardName: String, boardDescription: String?, totalPins: Int, pinTexts: [String],
+                        images: [Data], vocabulary: [TagLevel: [String]], client: ClaudeClient) async throws -> BoardSummary {
+        var lines = ["Board: \(boardName)"]
+        if let boardDescription, !boardDescription.isEmpty { lines.append("Board description: \(boardDescription)") }
+        lines.append("Pins on the board: \(totalPins). Images attached: \(images.count) (numbered 1–\(images.count) in order).")
+
+        var budget = 12_000
+        var texts: [String] = []
+        for text in pinTexts {
+            let clipped = String(text.prefix(200))
+            guard budget - clipped.count > 0 else { break }
+            budget -= clipped.count
+            texts.append("- \(clipped)")
+        }
+        if !texts.isEmpty { lines.append("Pin titles and descriptions:\n" + texts.joined(separator: "\n")) }
+
+        for level in TagLevel.allCases {
+            if let words = vocabulary[level], !words.isEmpty {
+                lines.append("Their existing \(level.pluralTitle.lowercased()): \(words.prefix(25).joined(separator: ", "))")
+            }
+        }
+        lines.append("Summarize the board.")
+
+        let inputs = images.map { ClaudeClient.ImageInput(data: $0) }
+        let output = try await client.structured(Output.self, system: system, prompt: lines.joined(separator: "\n\n"),
+                                                 images: inputs, schema: schema, effort: .medium, maxTokens: 8_000, timeout: 180)
+
+        // Without images (rare: pins with no media), counts are over the pin texts instead.
+        let analyzed = images.isEmpty ? max(texts.count, 1) : images.count
+        func counts(_ list: [Output.Count]) -> [NamedCount] {
+            list.map { NamedCount(name: $0.name, count: min(max($0.count, 1), analyzed)) }
+        }
+        let domain = TagText.clean(output.domain).lowercased()
+        return BoardSummary(
+            about: output.about.trimmingCharacters(in: .whitespacesAndNewlines),
+            domain: domain.isEmpty ? "things" : domain,
+            verb: verbs.contains(output.verb) ? output.verb : "feel",
+            statement: output.statement
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"“”")),
+            symbol: symbols.contains(output.symbol) ? output.symbol : "square.stack",
+            profile: ImportedProfile(
+                analyzedItems: analyzed,
+                totalItems: totalPins,
+                feelings: counts(output.feelings),
+                references: counts(output.references),
+                ingredients: counts(output.ingredients)
+            )
+        )
+    }
+}
