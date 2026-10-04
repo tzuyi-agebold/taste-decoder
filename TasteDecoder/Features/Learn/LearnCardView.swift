@@ -11,6 +11,8 @@ struct LearnCardView: View {
     @Environment(LearnLibrary.self) private var library
     @Query private var records: [LearnCardRecord]
     @Query(filter: #Predicate<TagEntry> { $0.statusRaw == "confirmed" }) private var confirmedTags: [TagEntry]
+    // Imported boards add their tags to the pantry too.
+    @Query(filter: #Predicate<TasteCollection> { $0.profileData != nil }) private var importedCollections: [TasteCollection]
     @Query private var allItems: [SaveItem]
 
     @State private var generating = false
@@ -55,11 +57,11 @@ struct LearnCardView: View {
                 cardBody(resolved.card, origin: resolved.origin)
             } else if generating {
                 GeneratingView(name: route.name)
-            } else if !settings.hasAPIKey {
+            } else if !settings.canUseClaude {
                 ContentUnavailableView {
                     Label("No card for “\(route.name)” yet", systemImage: "character.book.closed")
                 } description: {
-                    Text("Add your Claude API key and Taste Decoder will write one — who or what it is, examples, and where to go next.")
+                    Text("Sign in or add your Claude API key and Taste Decoder will write one — who or what it is, examples, and where to go next.")
                 } actions: {
                     Button("Open Settings") { showSettings = true }
                         .buttonStyle(.borderedProminent)
@@ -87,7 +89,7 @@ struct LearnCardView: View {
                         } label: {
                             Label("Edit card", systemImage: "pencil")
                         }
-                        if settings.hasAPIKey {
+                        if settings.canUseClaude {
                             Button {
                                 Task { await generate(force: true) }
                             } label: {
@@ -292,13 +294,16 @@ struct LearnCardView: View {
         PantryIndex.build(confirmedTags.compactMap { tag in
             guard let item = tag.item else { return nil }
             return TagUsage(name: tag.name, level: tag.level, itemID: item.id, collectionName: item.collection?.name)
-        })
+        } + importedCollections.flatMap(\.importedUsages))
     }
 
     private var collectionSizes: [String: Int] {
         var sizes: [String: Int] = [:]
         for item in allItems {
             sizes[item.collection?.name ?? PantryIndex.unsortedName, default: 0] += 1
+        }
+        for collection in importedCollections {
+            sizes[collection.name, default: 0] += collection.importedProfile?.analyzedItems ?? 0
         }
         return sizes
     }

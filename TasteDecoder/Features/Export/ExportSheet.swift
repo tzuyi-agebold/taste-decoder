@@ -41,7 +41,7 @@ struct ExportSheet: View {
 
     var body: some View {
         let items = allItems.filter { $0.collection == collection }.sorted { $0.createdAt > $1.createdAt }
-        let distillation = Distiller.distill(items.map(\.snapshot))
+        let distillation = collection.effectiveDistillation(items: items)
         let paragraph = TasteExport.paragraph(collection: collection, distillation: distillation)
 
         NavigationStack {
@@ -120,13 +120,17 @@ struct ExportSheet: View {
 
     @MainActor
     private func renderCard(items: [SaveItem], distillation: Distillation) -> UIImage? {
-        let visuals: [TasteCardView.Visual] = items.compactMap { item in
+        let fromSaves: [TasteCardView.Visual] = items.compactMap { item in
             if let fileName = item.imageFileName, let image = ImageStore.image(named: fileName, maxPixel: 700) {
                 return .photo(image)
             }
             if let style = item.artStyle { return .art(style, item.artSeed) }
             return nil
         }
+        let covers: [TasteCardView.Visual] = collection.coverImageNames.compactMap { name in
+            ImageStore.image(named: name, maxPixel: 700).map(TasteCardView.Visual.photo)
+        }
+        let visuals = fromSaves + covers
         let card = TasteCardView(
             name: collection.name,
             domain: collection.domain,

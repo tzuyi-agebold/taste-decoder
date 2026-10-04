@@ -33,6 +33,18 @@ enum ImageStore {
         return write(data)
     }
 
+    /// Writes already-encoded image data under a known name (images restored from the cloud keep their names).
+    @discardableResult
+    static func store(data: Data, named name: String) -> Bool {
+        guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return false }
+        do {
+            try data.write(to: url(for: name), options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     static func data(named name: String) -> Data? {
         try? Data(contentsOf: url(for: name))
     }

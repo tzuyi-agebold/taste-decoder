@@ -143,7 +143,7 @@ struct CompareView: View {
     // MARK: Helpers
 
     private func distillation(_ collection: TasteCollection) -> Distillation {
-        Distiller.distill(allItems.filter { $0.collection == collection }.map(\.snapshot))
+        collection.effectiveDistillation(items: allItems.filter { $0.collection == collection })
     }
 
     /// Starts on the requested pair, or the pair with the most common ground.
@@ -198,14 +198,15 @@ private struct CollectionPickerCard: View {
                 Button {
                     selection = collection.id
                 } label: {
-                    Label(collection.name, systemImage: collection.id == selection ? "checkmark" : collection.symbol)
+                    Label(collection.isImported ? "\(collection.name) · \(collection.source?.label ?? "")" : collection.name,
+                          systemImage: collection.id == selection ? "checkmark" : collection.symbol)
                 }
             }
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 Group {
-                    if let selected, !selected.items.isEmpty {
-                        Mosaic(items: selected.sortedItems)
+                    if let selected, !selected.items.isEmpty || !selected.coverImageNames.isEmpty {
+                        CollectionVisual(collection: selected, items: selected.sortedItems)
                     } else {
                         ZStack {
                             Theme.raised
@@ -217,6 +218,12 @@ private struct CollectionPickerCard: View {
                 }
                 .frame(height: 96)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(alignment: .topLeading) {
+                    if let source = selected?.source {
+                        SourceBadge(source: source, size: 18)
+                            .padding(6)
+                    }
+                }
 
                 HStack(spacing: 6) {
                     Text(label)

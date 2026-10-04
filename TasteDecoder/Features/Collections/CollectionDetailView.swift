@@ -5,6 +5,7 @@ struct CollectionDetailView: View {
     @Bindable var collection: TasteCollection
 
     @Environment(\.modelContext) private var context
+    @Environment(AppSettings.self) private var settings
     @Query(sort: \SaveItem.createdAt, order: .reverse) private var allItems: [SaveItem]
     @Query(filter: #Predicate<TagEntry> { $0.statusRaw == "confirmed" }) private var confirmedTags: [TagEntry]
     @Query(sort: \TasteCollection.sortIndex) private var collections: [TasteCollection]
@@ -14,12 +15,14 @@ struct CollectionDetailView: View {
     @State private var showEditor = false
     @State private var showExport = false
     @State private var savedTick = 0
+    @State private var importer = PinterestImporter()
+    @State private var refreshError: String?
 
     private var items: [SaveItem] { allItems.filter { $0.collection == collection } }
 
     var body: some View {
         let saves = items
-        let distillation = Distiller.distill(saves.map(\.snapshot))
+        let distillation = collection.effectiveDistillation(items: saves)
         let pending = saves.filter { !$0.isDecoded }
 
         ScrollView {
@@ -31,6 +34,12 @@ struct CollectionDetailView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 16)
 
+                if let source = collection.source {
+                    ImportedSourceCard(collection: collection, source: source, isRefreshing: isRefreshing)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                }
+
                 if !pending.isEmpty, distillation.decodedItems > 0 {
                     PendingBanner(count: pending.count) {
                         queue = InterrogationQueue(items: Array(pending.reversed()))
@@ -39,7 +48,14 @@ struct CollectionDetailView: View {
                     .padding(.bottom, 16)
                 }
 
-                if saves.isEmpty {
+                if saves.isEmpty, collection.isImported {
+                    CoverGrid(names: collection.coverImageNames)
+                    Text("Add your own saves with ＋ and they count alongside the board.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                } else if saves.isEmpty {
                     ContentUnavailableView {
                         Label("Nothing saved here yet", systemImage: collection.symbol)
                     } description: {
@@ -79,6 +95,18 @@ struct CollectionDetailView: View {
                 Menu {
                     Button { showExport = true } label: { Label("Share taste card", systemImage: "square.and.arrow.up") }
                     Button { showEditor = true } label: { Label("Edit collection", systemImage: "pencil") }
+                    if collection.source == .pinterest {
+                        Divider()
+                        Button {
+                            Task { await refresh() }
+                        } label: {
+                            Label("Refresh from Pinterest", systemImage: "arrow.clockwise")
+                        }
+                        .disabled(isRefreshing)
+                        if let url = collection.sourceURL.flatMap(URL.init(string:)) {
+                            Link(destination: url) { Label("Open in Pinterest", systemImage: "safari") }
+                        }
+                    }
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }
@@ -95,6 +123,23 @@ struct CollectionDetailView: View {
             ExportSheet(collection: collection)
         }
         .sensoryFeedback(.success, trigger: savedTick)
+        .alert("Couldn't refresh", isPresented: Binding(get: { refreshError != nil }, set: { if !$0 { refreshError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(refreshError ?? "")
+        }
+    }
+
+    private var isRefreshing: Bool { importer.isRunning }
+
+    /// Re-reads the board and rewrites the summary in place.
+    private func refresh() async {
+        guard collection.source == .pinterest, let boardID = collection.sourceID else { return }
+        let board = PinterestBoard(id: boardID, name: collection.name, description: nil, pinCount: collection.sourceItemCount,
+                                   privacy: "public", coverImageURL: nil, thumbnailURLs: [], url: collection.sourceURL)
+        await importer.run([board], context: context, settings: settings)
+        if case let .failed(message) = importer.steps[boardID] { refreshError = message }
+        importer.reset()
     }
 
     @ViewBuilder
@@ -136,6 +181,66 @@ struct CollectionDetailView: View {
                 try? context.save()
             } label: {
                 Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+}
+
+// MARK: - Imported source
+
+/// "About this board": what Claude made of it and where it came from.
+private struct ImportedSourceCard: View {
+    let collection: TasteCollection
+    let source: CollectionSource
+    let isRefreshing: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                SourceBadge(source: source, size: 22)
+                Eyebrow(text: "About this \(source == .pinterest ? "board" : "source")")
+                Spacer()
+                if isRefreshing {
+                    ProgressView()
+                }
+            }
+            if let summary = collection.summary, !summary.isEmpty {
+                Text(summary)
+                    .font(.system(.body, design: .serif))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(provenance)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .cardBackground()
+    }
+
+    private var provenance: String {
+        var parts: [String] = []
+        if let profile = collection.importedProfile {
+            let total = max(collection.sourceItemCount, profile.totalItems)
+            parts.append("Read from \(profile.analyzedItems) of \(total) \(source.itemNoun(total))")
+        }
+        if let date = collection.importedAt {
+            parts.append("updated \(date.formatted(.relative(presentation: .named)))")
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// The imported cover images, edge to edge.
+private struct CoverGrid: View {
+    let names: [String]
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Theme.tileSpacing), count: 2),
+                  spacing: Theme.tileSpacing) {
+            ForEach(names, id: \.self) { name in
+                Color.clear
+                    .aspectRatio(0.8, contentMode: .fit)
+                    .overlay { StoredImage(fileName: name, maxPixel: 700) }
+                    .clipped()
             }
         }
     }

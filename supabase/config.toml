@@ -1,0 +1,32 @@
+# Supabase CLI config for Taste Decoder. Deploy with:
+#   supabase link --project-ref <your-project-ref>
+#   supabase db push
+#   supabase functions deploy
+project_id = "taste-decoder"
+
+[auth.external.google]
+enabled = true
+# Comma-separated: the Web client id first, then the iOS client id (native sign-in tokens are issued to it).
+client_id = "env(GOOGLE_CLIENT_IDS)"
+secret = "env(GOOGLE_WEB_CLIENT_SECRET)"
+# Native iOS sign-in sends an ID token minted for the iOS client; allow it without a nonce check.
+skip_nonce_check = true
+
+[functions.claude]
+verify_jwt = true
+
+[functions.pinterest-start]
+verify_jwt = true
+
+# Pinterest calls this one directly, so it can't carry a Supabase session. It validates a one-time state instead.
+[functions.pinterest-callback]
+verify_jwt = false
+
+[functions.pinterest-boards]
+verify_jwt = true
+
+[functions.pinterest-pins]
+verify_jwt = true
+
+[functions.pinterest-disconnect]
+verify_jwt = true

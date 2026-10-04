@@ -12,6 +12,7 @@ struct CollectionsView: View {
     @State private var path = NavigationPath()
     @State private var editorTarget: CollectionEditorTarget?
     @State private var pendingDelete: TasteCollection?
+    @State private var showPinterestImport = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -82,6 +83,11 @@ struct CollectionsView: View {
                     } actions: {
                         Button("New collection") { editorTarget = .new }
                             .buttonStyle(.borderedProminent)
+                        Button {
+                            showPinterestImport = true
+                        } label: {
+                            Label("Import from Pinterest", systemImage: "square.and.arrow.down")
+                        }
                     }
                 }
             }
@@ -95,14 +101,29 @@ struct CollectionsView: View {
                     .disabled(collections.count < 2)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        editorTarget = .new
+                    Menu {
+                        Button {
+                            editorTarget = .new
+                        } label: {
+                            Label("New collection", systemImage: "square.stack")
+                        }
+                        Button {
+                            showPinterestImport = true
+                        } label: {
+                            Label("Import from Pinterest", systemImage: "square.and.arrow.down")
+                        }
                     } label: {
-                        Label("New collection", systemImage: "plus")
+                        Label("Add", systemImage: "plus")
                     }
                 }
             }
             .tasteDestinations(learnNamespace)
+        }
+        .sheet(isPresented: $showPinterestImport) {
+            PinterestImportView { collection in
+                showPinterestImport = false
+                path.append(collection)
+            }
         }
         .sheet(item: $editorTarget) { target in
             CollectionEditor(target: target, nextSortIndex: (collections.map(\.sortIndex).max() ?? -1) + 1)
@@ -118,7 +139,9 @@ struct CollectionsView: View {
                 pendingDelete = nil
             }
         } message: {
-            Text("Its saves stay in your inbox with their tags.")
+            Text(pendingDelete?.isImported == true
+             ? "You can import the board again any time. Saves you added stay in your inbox."
+             : "Its saves stay in your inbox with their tags.")
         }
         .onChange(of: collections.map(\.name)) { _, _ in
             ShareImporter.mirrorCollections(collections)
@@ -138,24 +161,19 @@ private struct CollectionCard: View {
     let items: [SaveItem]
 
     var body: some View {
-        let distillation = Distiller.distill(items.map(\.snapshot))
+        let distillation = collection.effectiveDistillation(items: items)
         let pending = items.filter { !$0.isDecoded }.count
 
         VStack(alignment: .leading, spacing: 14) {
-            Group {
-                if items.isEmpty {
-                    ZStack {
-                        Theme.surface
-                        Image(systemName: collection.symbol)
-                            .font(.largeTitle)
-                            .foregroundStyle(.tertiary)
+            CollectionVisual(collection: collection, items: items)
+                .frame(height: 190)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+                .overlay(alignment: .topLeading) {
+                    if let source = collection.source {
+                        SourceBadge(source: source, showsLabel: true)
+                            .padding(10)
                     }
-                } else {
-                    Mosaic(items: items)
                 }
-            }
-            .frame(height: 190)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
 
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -181,7 +199,13 @@ private struct CollectionCard: View {
     }
 
     private func subtitle(pending: Int) -> String {
-        var parts = ["\(items.count) \(items.count == 1 ? "save" : "saves")"]
+        var parts: [String] = []
+        if let source = collection.source {
+            parts.append("\(collection.sourceItemCount) \(source.itemNoun(collection.sourceItemCount))")
+            if !items.isEmpty { parts.append("\(items.count) \(items.count == 1 ? "save" : "saves")") }
+        } else {
+            parts.append("\(items.count) \(items.count == 1 ? "save" : "saves")")
+        }
         if pending > 0 { parts.append("\(pending) to decode") }
         return parts.joined(separator: " · ")
     }

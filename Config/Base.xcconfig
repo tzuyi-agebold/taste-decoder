@@ -20,4 +20,12 @@ TD_SHARE_ENTITLEMENTS = Config/TasteDecoderShare.entitlements
 CLAUDE_API_KEY =
 CLAUDE_MODEL = claude-opus-5-5
 
+// Backend (optional): Google sign-in, sync, the Claude proxy and Pinterest import. Leave empty to stay local-only.
+// Set the real values in Secrets.xcconfig — see the README's "Backend setup".
+SUPABASE_PROJECT_REF =
+SUPABASE_ANON_KEY =
+GOOGLE_IOS_CLIENT_ID =
+// Placeholder so the URL type is valid until you set your own.
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.not-configured
+
 #include? "Secrets.xcconfig"

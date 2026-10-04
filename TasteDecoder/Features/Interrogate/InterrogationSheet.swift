@@ -312,8 +312,8 @@ struct InterrogationView: View {
             Label(suggestionError, systemImage: "exclamationmark.triangle")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-        } else if !settings.hasAPIKey {
-            Label("Add a Claude API key in Settings to get suggestions. Your own words always work.", systemImage: "key")
+        } else if !settings.canUseClaude {
+            Label("Sign in or add a Claude API key in Settings to get suggestions. Your own words always work.", systemImage: "key")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -447,7 +447,7 @@ struct InterrogationView: View {
     // MARK: AI suggestions
 
     private func suggestIfNeeded() async {
-        guard settings.hasAPIKey, !item.isDecoded, !item.tags.contains(where: { $0.source == .ai }) else { return }
+        guard settings.canUseClaude, !item.isDecoded, !item.tags.contains(where: { $0.source == .ai }) else { return }
         await suggest()
     }
 

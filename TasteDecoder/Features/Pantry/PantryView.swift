@@ -6,6 +6,8 @@ struct PantryView: View {
     @Environment(\.modelContext) private var context
     @Environment(LearnLibrary.self) private var library
     @Query(filter: #Predicate<TagEntry> { $0.statusRaw == "confirmed" }) private var confirmedTags: [TagEntry]
+    // Imported boards add their tags to the pantry too.
+    @Query(filter: #Predicate<TasteCollection> { $0.profileData != nil }) private var importedCollections: [TasteCollection]
     @Query private var records: [LearnCardRecord]
 
     @Namespace private var learnNamespace
@@ -41,7 +43,7 @@ struct PantryView: View {
         PantryIndex.build(confirmedTags.compactMap { tag in
             guard let item = tag.item else { return nil }
             return TagUsage(name: tag.name, level: tag.level, itemID: item.id, collectionName: item.collection?.name)
-        })
+        } + importedCollections.flatMap(\.importedUsages))
     }
 
     var body: some View {
@@ -188,6 +190,9 @@ struct PantryView: View {
                     tag.rename(newName)
                 }
             }
+            for collection in importedCollections {
+                collection.renameImportedTag(key: entry.key, level: entry.level, to: newName)
+            }
         }
         try? context.save()
         renaming = nil
@@ -197,6 +202,9 @@ struct PantryView: View {
         guard let entry = pendingRemoval else { return }
         withAnimation(Theme.spring) {
             for tag in tags(for: entry) { context.delete(tag) }
+            for collection in importedCollections {
+                collection.removeImportedTag(key: entry.key, level: entry.level)
+            }
         }
         try? context.save()
         pendingRemoval = nil

@@ -25,6 +25,7 @@ The app ships with four worked examples (Uncomfy, Reds I Love, Rooms, 2am Songs)
 | Device | iPhone (portrait) |
 | Tools | [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the Xcode project |
 | Claude | Optional. A Claude API key unlocks AI tag suggestions, statement polishing and new Learn cards. Everything else (including the demo and all bundled Learn cards) works offline. |
+| Backend | Optional. A [Supabase](https://supabase.com) project adds Google sign-in, cloud sync, Claude without a key on the phone, and Pinterest import. See [Backend setup](#backend-setup). |
 
 ## Build and run on your iPhone
 
@@ -80,6 +81,75 @@ TD_SHARE_ENTITLEMENTS =
 
 Everything works except saving from the iOS share sheet; the extension will say so.
 
+## Backend setup
+
+Everything in this section is optional. Without it the app stays local-only, exactly as above. With it you get:
+
+- **Sign in with Google** (Settings ▸ Account). Your collections, saves, tags, edited Learn cards and images sync to your account and come back when you sign in on another device or reinstall. The app stays local-first, so it works offline and syncs when it can.
+- **Claude through the backend.** While you're signed in, AI calls go through a Supabase Edge Function that holds the Anthropic key, so no key ships on the phone. Each user gets a daily allowance (`CLAUDE_DAILY_LIMIT`, default 300 requests).
+- **Pinterest import** (Collections ▸ ＋ ▸ Import from Pinterest). Connect Pinterest, pick boards, and Claude reads up to 20 pins per board. Each board becomes **one collection** with a Pinterest badge, plus a summary: what the board is about, its common elements (with "n of 20" counts), feelings, references and a taste statement. Distill, Compare, the Pantry and Learn all work with it. Importing a board again refreshes it in place.
+
+The backend lives in [`supabase/`](supabase/): one SQL migration and six Edge Functions.
+
+### 1. Supabase project
+
+1. Create a project at [supabase.com](https://supabase.com) and install the [Supabase CLI](https://supabase.com/docs/guides/cli).
+2. From the repo root:
+   ```bash
+   supabase login
+   supabase link --project-ref <your-project-ref>
+   supabase db push                 # tables, row-level security, storage bucket
+   supabase functions deploy        # claude, pinterest-start, -callback, -boards, -pins, -disconnect
+   ```
+3. Note your **project ref** (the `abcd1234` in `https://abcd1234.supabase.co`) and the **anon/publishable key** (*Project Settings ▸ API*).
+
+### 2. Google sign-in
+
+1. In [Google Cloud Console](https://console.cloud.google.com) ▸ *APIs & Services ▸ Credentials*, create two **OAuth client IDs**:
+   - **iOS**, with your app's bundle id (`<TD_BUNDLE_ID_PREFIX>.TasteDecoder`). Note its **client ID** and **iOS URL scheme** (the reversed client id).
+   - **Web application**. Note its client ID and secret.
+2. In Supabase ▸ *Authentication ▸ Sign In / Providers ▸ Google*, enable Google, paste the **Web** client ID and secret, add the **iOS** client ID to the authorized client IDs (comma-separated after the Web one), and turn on **Skip nonce check** (native iOS sign-in doesn't send one).
+
+### 3. Pinterest app
+
+1. At [developers.pinterest.com](https://developers.pinterest.com/apps/) create an app and add this **redirect URI**:
+   `https://<your-project-ref>.supabase.co/functions/v1/pinterest-callback`
+2. Note the **App ID** and **App secret key**. New apps start on **Trial access**, which is enough for your own boards (1,000 requests a day). To let other people import, apply for Standard access.
+
+### 4. Server secrets
+
+```bash
+supabase secrets set \
+  ANTHROPIC_API_KEY=sk-ant-... \
+  PINTEREST_APP_ID=... \
+  PINTEREST_APP_SECRET=... \
+  CLAUDE_DAILY_LIMIT=300          # optional
+```
+
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided to Edge Functions automatically.
+
+### 5. App config
+
+Add to `Config/Secrets.xcconfig`, then run `xcodegen generate` again:
+
+```
+SUPABASE_PROJECT_REF = abcd1234
+SUPABASE_ANON_KEY = eyJ...
+GOOGLE_IOS_CLIENT_ID = 1234567890-abc.apps.googleusercontent.com
+GOOGLE_REVERSED_CLIENT_ID = com.googleusercontent.apps.1234567890-abc
+```
+
+Use the project ref, not the full URL, because xcconfig treats `//` as the start of a comment.
+
+### How sync works
+
+- Every row (collection, save, tag, edited Learn card) is mirrored to Postgres with row-level security, so each user can only see their own rows. Images go to a private Storage bucket under `<user id>/`.
+- The app compares each row's content fingerprint with what it last synced. Changed rows are uploaded. Deleted rows become tombstones (`deleted_at`) so other devices remove them too. Server changes are applied unless the same row also has local edits that haven't synced yet, in which case your device's version wins.
+- Sync runs at launch, when the app comes to the foreground or goes to the background, after an import, and from *Settings ▸ Account ▸ Sync now*.
+- The demo collections have the same IDs on every device, so they merge instead of duplicating.
+- Signing out keeps your data on the device. *Reset everything* while signed in clears it on every device.
+- `collections.visibility` is already in the schema so collections can be shared with friends later.
+
 ## Share Extension
 
 Saving while scrolling is the core habit, so there's a **Share Extension**: in Photos, Safari, Instagram or any app, tap *Share ▸ Taste Decoder* (you may need *More…* the first time to add it to your favorites). Pick an optional collection and note, tap *Save*, and keep scrolling. The save appears in the app's *Save* tab next time you open it, ready to decode.
@@ -109,17 +179,19 @@ TasteDecoder/
   Core/                      Foundation-only logic: tag normalization, distillation,
                              statements, comparison, pantry, Learn card model
   Models/                    SwiftData models (collections, saves, tags, cached cards)
-  Services/                  Claude client + prompts, capture, link previews, Keychain, Learn library
+  Services/                  Claude client + prompts (incl. board summaries), capture, link previews, Keychain,
+                             Learn library, backend (Supabase rows + storage), sync, Pinterest import
   Seed/                      The four worked examples + 69 bundled Learn cards (JSON)
   Design/                    Theme tokens, chips, flow layout, procedural art, item visuals
   Navigation/                Routes and shared navigation destinations
   Features/                  Save, Interrogate, Collections (incl. Distillation), Learn,
-                             Pantry, Compare, Export, Settings
+                             Pantry, Compare, Export, Import (Pinterest), Settings
   Resources/Assets.xcassets  Accent color (acid lime), app icon
 Shared/                      Code shared with the Share Extension (App Group, images, inbox)
 TasteDecoderShare/           Share Extension
 Tests/TasteCoreTests/        Unit tests for the core logic
 Package.swift                Lets the core logic be tested with `swift test` on any machine
+supabase/                    Backend: SQL migration (tables, RLS, storage) and Edge Functions (Deno)
 ```
 
 ### Design notes
@@ -131,13 +203,14 @@ Package.swift                Lets the core logic be tested with `swift test` on 
 ## Tests
 
 ```bash
-swift test          # core logic: distillation, statements, compare, pantry (macOS or Linux)
+swift test          # core logic: distillation, statements, compare, pantry, imported profiles (macOS or Linux)
+cd supabase/functions && deno test _shared/   # Pinterest response mapping
 ```
 
 In Xcode, the **TasteDecoder** scheme's test action runs the same tests (*⌘U*).
 
-CI (`.github/workflows/ios-build.yml`) runs `swift test` and an `xcodebuild` simulator build on a macOS runner for every push.
+CI (`.github/workflows/ios-build.yml`) runs `swift test`, type-checks and tests the Edge Functions with Deno, and builds for the simulator with `xcodebuild` on a macOS runner for every push.
 
 ## Not in this MVP
 
-Social features, accounts, iCloud sync, widgets and onboarding are intentionally out of scope; the app is single-user and local-first (SwiftData). A Cloudflare Worker that proxies Claude requests so the key never ships on the phone is a reasonable next step if the app is ever shared beyond your own device.
+Sharing with friends (the schema is ready for it), widgets and onboarding are out of scope for now. Spotify and Apple Music imports are possible next sources: Apple Music via MusicKit on the device, and Spotify only for a handful of users while its Development Mode limits stay in place.

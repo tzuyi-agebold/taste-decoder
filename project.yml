@@ -11,6 +11,14 @@ options:
   groupSortPosition: top
   generateEmptyDirectories: true
 
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.55.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 10.0.0
+
 configFiles:
   Debug: Config/Base.xcconfig
   Release: Config/Base.xcconfig
@@ -63,8 +71,24 @@ targets:
         ClaudeAPIKey: $(CLAUDE_API_KEY)
         ClaudeModel: $(CLAUDE_MODEL)
         AppGroupIdentifier: $(TD_APP_GROUP_ID)
+        SupabaseProjectRef: $(SUPABASE_PROJECT_REF)
+        SupabaseAnonKey: $(SUPABASE_ANON_KEY)
+        GIDClientID: $(GOOGLE_IOS_CLIENT_ID)
+        CFBundleURLTypes:
+          # Google Sign-In returns to the app through its reversed client id.
+          - CFBundleURLName: google-sign-in
+            CFBundleURLSchemes:
+              - $(GOOGLE_REVERSED_CLIENT_ID)
+          # Pinterest connect finishes at tastedecoder://pinterest (via ASWebAuthenticationSession).
+          - CFBundleURLName: taste-decoder
+            CFBundleURLSchemes:
+              - tastedecoder
     dependencies:
       - target: TasteDecoderShare
+      - package: Supabase
+        product: Supabase
+      - package: GoogleSignIn
+        product: GoogleSignIn
 
   TasteDecoderShare:
     type: app-extension

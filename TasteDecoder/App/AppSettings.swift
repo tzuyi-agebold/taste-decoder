@@ -69,10 +69,22 @@ final class AppSettings {
         keychainKey = nil
     }
 
+    /// Signed in: Claude through the Taste Decoder backend (its key, your session).
+    /// Signed out: your own key from Settings or Secrets.xcconfig.
     func client() throws -> ClaudeClient {
+        if Backend.isSignedIn, let url = Backend.claudeProxyURL, let anonKey = Backend.anonKey {
+            return ClaudeClient(transport: .proxy(url: url, apiKey: anonKey, accessToken: { try await Backend.accessToken() }),
+                                model: model)
+        }
         guard let apiKey else { throw ClaudeClient.ClaudeError.missingKey }
         return ClaudeClient(apiKey: apiKey, model: model)
     }
+
+    /// Whether AI features can run right now (signed in, or a key is set).
+    var canUseClaude: Bool { isSignedIn || hasAPIKey }
+
+    /// Mirrors the account (kept in step by RootView) so views refresh when you sign in or out.
+    var isSignedIn = Backend.isSignedIn
 
     private static func cleanBuildValue(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -25,7 +25,7 @@ struct DistillationView: View {
     private static let collapsedRows = 5
 
     var body: some View {
-        let distillation = Distiller.distill(allItems.filter { $0.collection == collection }.map(\.snapshot))
+        let distillation = collection.effectiveDistillation(items: allItems.filter { $0.collection == collection })
         let rows = showAllIngredients ? distillation.ingredients : Array(distillation.ingredients.prefix(Self.collapsedRows))
 
         ScrollView {
@@ -78,10 +78,13 @@ struct DistillationView: View {
 
     private func header(_ distillation: Distillation) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Eyebrow(text: "Distilled from \(distillation.decodedItems) of \(distillation.totalItems) saves", color: Theme.accent)
+            HStack(spacing: 8) {
+                if let source = collection.source { SourceBadge(source: source, size: 16) }
+                Eyebrow(text: provenance(distillation), color: Theme.accent)
+            }
             Text(collection.name)
                 .font(.largeTitle.weight(.bold))
-            if let headline = TasteStatement.headline(distillation) {
+            if let headline = TasteStatement.headline(distillation, noun: itemNoun) {
                 Text(headline)
                     .font(.title3)
                     .foregroundStyle(.secondary)
@@ -224,6 +227,24 @@ struct DistillationView: View {
         }
     }
 
+    // MARK: Wording
+
+    /// What the counts are over: saves, pins from a board, or both.
+    private var itemNoun: (one: String, many: String) {
+        guard let source = collection.source else { return ("save", "saves") }
+        if allItems.contains(where: { $0.collection == collection }) { return ("item", "items") }
+        return (source.itemNoun(1), source.itemNoun(2))
+    }
+
+    private func provenance(_ distillation: Distillation) -> String {
+        guard let source = collection.source, let profile = collection.importedProfile else {
+            return "Distilled from \(distillation.decodedItems) of \(distillation.totalItems) saves"
+        }
+        let pins = "\(profile.analyzedItems) \(source.itemNoun(profile.analyzedItems))"
+        let saves = distillation.totalItems - profile.analyzedItems
+        return saves > 0 ? "Distilled from \(pins) + \(saves) \(saves == 1 ? "save" : "saves")" : "Distilled from \(pins)"
+    }
+
     // MARK: Statement
 
     private func polish(_ distillation: Distillation) async {
@@ -231,7 +252,7 @@ struct DistillationView: View {
         do {
             client = try settings.client()
         } catch {
-            polishError = "Add a Claude API key in Settings to polish statements. The draft works offline."
+            polishError = "Sign in or add a Claude API key in Settings to polish statements. The draft works offline."
             return
         }
         polishing = true
