@@ -171,7 +171,7 @@ struct CollectionRow: SyncRow, Equatable {
     }
 }
 
-struct SaveRow: SyncRow, Equatable {
+struct SaveItemRow: SyncRow, Equatable {
     static let table = SyncTable.saves
 
     var id: UUID

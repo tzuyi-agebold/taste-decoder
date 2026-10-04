@@ -179,7 +179,7 @@ final class SyncService {
         setCursor(collectionChanges.last?.updatedAt, .collections)
 
         // Saves
-        let saveChanges = try await store.changes(SaveRow.self, since: cursor(.saves))
+        let saveChanges = try await store.changes(SaveItemRow.self, since: cursor(.saves))
         var saves = Dictionary(try context.fetch(FetchDescriptor<SaveItem>()).map { ($0.id, $0) },
                                uniquingKeysWith: { first, _ in first })
         for change in saveChanges {
@@ -382,15 +382,15 @@ extension TasteCollection {
 }
 
 extension SaveItem {
-    func row(userID: UUID) -> SaveRow {
-        SaveRow(
+    func row(userID: UUID) -> SaveItemRow {
+        SaveItemRow(
             id: id, userID: userID, collectionID: collection?.id, kind: kindRaw, title: title, note: note,
             url: urlString, imageName: imageFileName, artStyle: artStyleRaw, artSeed: artSeed, why: why,
             decodedAt: decodedAt, createdAt: createdAt, deletedAt: nil
         )
     }
 
-    func apply(_ row: SaveRow, collection: TasteCollection?) {
+    func apply(_ row: SaveItemRow, collection: TasteCollection?) {
         kindRaw = row.kind
         title = row.title
         note = row.note
